@@ -5,7 +5,6 @@ namespace janboddez\ImageProxy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Imagick;
 
 /**
  * Camo-like "image proxy" for Laravel.
@@ -114,7 +113,7 @@ class ImageProxyController
             }
 
             // Set up Imagick.
-            $im = new Imagick();
+            $im = new \Imagick();
             $im->setBackgroundColor(new \ImagickPixel('transparent'));
 
             try {

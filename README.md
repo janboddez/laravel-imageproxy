@@ -12,7 +12,7 @@ Now, you can either directly edit that file, or add the following to your app's 
 ```
 IMAGEPROXY_KEY=<your-secret-key>
 ```
-Laravel will automatically pick these up. (Well, you may have to run `php artisan config:clear` if you've previously cached your app's config.)
+You may have to run `php artisan config:clear` if you've previously cached your app's config.
 
 Then, in your app, use either `https://example.org/imageproxy/<hash>/<original-image-url>` or something like `https://example.org/imageproxy/<hash>/100x100/<original-image-url>` to have images (or video) delivered through your domain (`example.org`, in this case) and over HTTPS.
 

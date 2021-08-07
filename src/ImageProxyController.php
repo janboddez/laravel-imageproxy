@@ -170,10 +170,9 @@ class ImageProxyController
     /**
      * Create a stream context.
      *
-     * @param  array  $headers
      * @return resource
      */
-    protected function createStreamContext($headers, $bindTo = null)
+    protected function createStreamContext(array $headers, string $bindTo)
     {
         $args = [
             'http' => [

@@ -1,5 +1,5 @@
 # laravel-imageproxy
-A PHP-based image proxy.
+A pure-PHP image proxy for Laravel.
 
 Publish the config file:
 ```
@@ -12,9 +12,9 @@ Now, you can either directly edit that file, or add the following to your app's 
 IMAGEPROXY_KEY=<your-secret-key>
 IMAGEPROXY_USER_AGENT=<your-user-agent-of-choice>
 ```
-The config will automatically pick these up. (Well, you may have to run `php artisan config:clear` if you've previously cached your app's config.)
+Laravel will automatically pick these up. (Well, you may have to run `php artisan config:clear` if you've previously cached your app's config.)
 
-Also, some remote servers **require** a user agent is set.
+Also, some remote servers **require** a (custom) user agent is set.
 
 Then, in your app, use `https://example.org/imageproxy/<hash>/<original-image-url>` (the `imageproxy` route is auto-registered) to have images (or video) delivered through your domain (`example.org`, in this case) and over HTTPS.
 

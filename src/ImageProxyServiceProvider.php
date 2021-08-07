@@ -15,7 +15,7 @@ class ImageProxyServiceProvider extends ServiceProvider
     {
         $this->publishes([
             __DIR__.'/../config.php' => config_path('imageproxy.php'),
-        ]);
+        ], 'imageproxy-config');
 
         $this->loadRoutesFrom(__DIR__.'/../routes.php');
     }

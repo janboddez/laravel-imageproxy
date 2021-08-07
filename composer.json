@@ -1,7 +1,6 @@
 {
     "name": "janboddez/laravel-imageproxy",
-    "description": "A PHP-based image proxy",
-    "type": "project",
+    "description": "A pure-PHP image proxy",
     "license": "MIT",
     "autoload": {
         "psr-4": {

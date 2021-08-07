@@ -32,4 +32,4 @@ IMAGEPROXY_USER_AGENT=<your-user-agent-of-choice>
 IMAGEPROXY_SSL_VERIFY_PEER=true
 IMAGEPROXY_SSL_VERIFY_PEER_NAME=true
 ```
-You might wish to, at your own risk, set the latter two to `false` false temporarily work around remote hosts' faulty SSL certificates.
+You might wish to, at your own risk, set the latter two to `false` to temporarily work around remote hosts' faulty SSL certificates.

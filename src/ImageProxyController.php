@@ -15,15 +15,13 @@ class ImageProxyController
     /**
      * Get requested image.
      *
-     * @param  string  $hash
-     * @param  string  $url
      * @return Illuminate\Http\Response|null
      */
-    public function proxy(Request $request, $hash = '', $url = '')
+    public function proxy(Request $request, string $hash = '', string $url = '')
     {
         // Use `$_SERVER` rather than `$url` or any of Laravel's URL functions
         // to avoid any processing that could lead to checksum errors. To do:
-        // actually drop the `$hash` and `$url` vars.
+        // actually drop the `$hash` and `$url` vars?
         $path = ltrim(str_replace('imageproxy', '', $_SERVER['REQUEST_URI']), '/');
         $path = explode('/', $path);
 
@@ -35,11 +33,11 @@ class ImageProxyController
             list($width, $height) = explode('x', array_shift($path));
         }
 
-        // Whatever's left would have to be the URL.
+        // Whatever's left would have to be the source URL.
         $url = implode('/', $path);
 
         if (! $this->verifyUrl($url, $hash)) {
-            \Log::error('Checksum verification failed for '.$url);
+            Log::error('Checksum verification failed for '.$url);
             // Invalid URL, hash, or both.
             abort(400);
         }
@@ -52,7 +50,7 @@ class ImageProxyController
         }
 
         $headers = array_filter([
-            // 'Accept' => 'image/*', // Some sources don't handle this correctly.
+            // 'Accept' => 'image/*', // Some remote hosts don't handle this correctly.
             'Accept-Encoding' => $request->header('accept-encoding', null),
             'Connection' => 'close',
             'Content-Security-Policy' => "default-src 'none'; img-src data:; style-src 'unsafe-inline'",
@@ -77,26 +75,13 @@ class ImageProxyController
                 $headers
             );
 
-            // Final response headers.
-            // $headers = array_filter($headers, function ($k) {
-            //     return in_array($k, [
-            //         'accept-ranges',
-            //         'content-length',
-            //         'content-type',
-            //         'etag',
-            //         'expires',
-            //         'last-modified',
-            //         'content-encoding',
-            //     ], true);
-            // }, ARRAY_FILTER_USE_KEY);
-
             // if (empty($headers['content-type']) || ! preg_match('~^(image|video)/.+$~i', $headers['content-type'])) {
-            //     \Log::error('Not an image? ('.$url.')');
+            //     Log::error('Not an image? ('.$url.')');
             //     abort(400);
             // }
 
             if (! in_array($status, [200, 201, 202, 206, 301, 302, 307], true)) {
-                \Log::debug(stream_get_contents($stream));
+                Log::debug(stream_get_contents($stream));
 
                 // Return an empty response.
                 fclose($stream);
@@ -116,7 +101,6 @@ class ImageProxyController
                 }
 
                 fpassthru($stream);
-                // fclose($stream);
             }, $status, $headers);
         } else {
             // Resize, and cache, the image (like in `storage/app/imageproxy`).
@@ -242,15 +226,20 @@ class ImageProxyController
         return [$status, $headers];
     }
 
-    protected function getMimeTypeFromStream($streamContext)
-    {
-    }
-
+    /**
+     * Get remote file handle.
+     *
+     * To work around possible IPv6 issues, essentially.
+     *
+     * @param  resource  $streamContext
+     * @return resource|null
+     */
     protected function openFile(string $url, array $headers)
     {
         $host = parse_url($url, PHP_URL_HOST);
 
         if (empty($host)) {
+            // Not a proper URL.
             return null;
         }
 
@@ -282,7 +271,8 @@ class ImageProxyController
         }
 
         try {
-            $handle = fopen($url, 'r', false, $this->createStreamContext($headers, $bindTo));
+            // Try IPv6 if it exists, and IPv4 otherwise.
+            return fopen($url, 'rb', false, $this->createStreamContext($headers, $bindTo));
         } catch (\Exception $e) {
             // That didn't work.
             if ($bindTo === '[0]:0' && $hasIpv4) {
@@ -290,7 +280,7 @@ class ImageProxyController
                 $bindTo = '0:0';
 
                 try {
-                    $handle = fopen($url, 'r', false, $this->createStreamContext($headers, $bindTo));
+                    return fopen($url, 'rb', false, $this->createStreamContext($headers, $bindTo));
                 } catch (\Exception $e) {
                     // Giving up.
                     Log::error("Failed to open the image at $url: ".$e->getMessage());
@@ -299,6 +289,6 @@ class ImageProxyController
             }
         }
 
-        return $handle;
+        return null;
     }
 }

@@ -62,7 +62,7 @@ class ImageProxyController
             return ! empty($v);
         });
 
-        if (empty($width) || empty($height) || ! class_exists(Imagick::class)) {
+        if (empty($width) || empty($height) || ! class_exists('Imagick')) {
             // Just passing the requested image along.
             $stream = $this->openFile($url, $headers);
 

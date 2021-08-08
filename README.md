@@ -22,7 +22,7 @@ $hash = hash_hmac('sha1', $url, config('imageproxy.secret_key'));
 ```
 
 ## Some Notes
-This package is designed to stream unedited resources (i.e., those linked to using the first URL type) right through to the client, so as to minimally burden your server. It passes on headers mostly unchanged, too, which helps prevent large videos from being downloaded entirely on page load, and should make video scrubbing work.
+This package is designed to stream unedited resources (i.e., those linked to using the first URL type) right through to the client, so as to minimally burden your server. It passes on headers mostly unchanged, too, which helps prevent large videos from being downloaded blocking page load, and should make video scrubbing work.
 
 The second URL type will try to resize remote images before delivering them to the client. Use it on (remote) user avatars, or Open Graph images. Use of this function requires PHP's **Imagick** extension. Resized images are cached (indefinitely, for now) using Laravel's `Storage::put()`.
 

@@ -6,7 +6,7 @@ Publish the config file:
 ```
 php artisan vendor:publish --tag=imageproxy-config
 ```
-This'll create a new file at `app/config/imageproxy.php`.
+This'll create a new file at `config/imageproxy.php`.
 
 Now, you can either directly edit that file, or add the following to your app's `.env`:
 ```

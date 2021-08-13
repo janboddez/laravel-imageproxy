@@ -7,7 +7,7 @@ use Illuminate\Support\ServiceProvider;
 class ImageProxyServiceProvider extends ServiceProvider
 {
     /**
-     * Bootstrap any application services.
+     * Bootstrap any package services.
      *
      * @return void
      */

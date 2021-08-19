@@ -2,7 +2,7 @@
 A pure-PHP image (and video, and audio) proxy for Laravel.
 
 ## Installation
-Until this package becomes available on Packagist, you can simply clone the repository and install it using Composer's [path](https://getcomposer.org/doc/05-repositories.md#path) option.
+Until this package becomes available on Packagist, you can simply clone the repository and install it using Composer's [path](https://getcomposer.org/doc/05-repositories.md#path) option. It should be automatically discovered by Laravel. The `/imageproxy` route is automaticaly registered.
 
 ## Configuration
 Publish the config file:

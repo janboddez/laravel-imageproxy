@@ -18,34 +18,35 @@ class ImageProxyController
      */
     public function proxy(Request $request, string $hash = '', string $url = '')
     {
-        // Use `$_SERVER` rather than `$url` or any of Laravel's URL functions
-        // to avoid any processing that could lead to checksum errors. To do:
-        // actually drop the `$hash` and `$url` vars?
-        $path = ltrim(str_replace('imageproxy', '', $_SERVER['REQUEST_URI']), '/');
-        $path = explode('/', $path);
-
-        // First item's the checksum.
-        $hash = array_shift($path);
-
-        if (isset($path[0]) && preg_match('~^\d+x\d+~', $path[0], $matches)) {
-            // New first item's a set of dimensions.
-            list($width, $height) = explode('x', array_shift($path));
+        if ($request->headers->has('if-modified-since') || $request->headers->has('if-none-match')) {
+            // It would seem the client already has the requested item.
+            return response('', 304);
         }
 
-        // Whatever's left would have to be the source URL.
-        $url = implode('/', $path);
-
-        if (! $this->verifyUrl($url, $hash)) {
-            Log::error('Checksum verification failed for '.$url);
-            // Invalid URL, hash, or both.
+        if (empty($hash)) {
             abort(400);
         }
 
-        if ($request->headers->has('if-modified-since') || $request->headers->has('if-none-match')) {
-            // It would seem the client already has the requested item. To do:
-            // also return the other headers a client would typically expect.
-            // (Seems to work, though.)
-            return response('', 304);
+        if (empty($url)) {
+            abort(400);
+        }
+
+        // Use `$_SERVER` rather than `$url` or any of Laravel's URL functions
+        // to avoid any processing that could lead to checksum errors. To do:
+        // actually drop the `$hash` and `$url` vars?
+        $url = ltrim(str_replace('imageproxy/'.$hash, '', $_SERVER['REQUEST_URI']), '/');
+
+        $path = explode('/', parse_url($url, PHP_URL_PATH));
+
+        if (isset($path[0]) && preg_match('~^\d+x\d+$~', $path[0])) {
+            // First item's a set of dimensions.
+            list($width, $height) = explode('x', $path[0]);
+            $url = substr($url, strlen($path[0]) + 1);
+        }
+
+        if (! $this->verifyUrl($url, $hash)) {
+            // Invalid URL, hash, or both.
+            abort(400);
         }
 
         $headers = array_filter([
@@ -58,11 +59,9 @@ class ImageProxyController
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'deny',
             'X-XSS-Protection' => '1; mode=block',
-        ], function ($v) {
-            return ! empty($v);
-        });
+        ]);
 
-        if (empty($width) || empty($height) || ! class_exists('Imagick')) {
+        if ((empty($width) && empty($height)) || ! class_exists('Imagick')) {
             // Just passing the requested image along.
             $stream = $this->openFile($url, $headers);
 
@@ -80,7 +79,7 @@ class ImageProxyController
             // }
 
             if (! in_array($status, [200, 201, 202, 206, 301, 302, 307], true)) {
-                Log::debug(stream_get_contents($stream));
+                Log::error('Error occurred for '.$url);
 
                 // Return an empty response.
                 fclose($stream);
@@ -89,10 +88,6 @@ class ImageProxyController
             }
 
             $headers['Cache-Control'] = 'public, max-age=31536000';
-
-            if ($status >= 301) {
-                $status = 200; // Not sure how we can get the status of the final URL, after forwarding, yet.
-            }
 
             return response()->stream(function () use ($stream) {
                 while (ob_get_level() > 0) {
@@ -104,12 +99,12 @@ class ImageProxyController
         } else {
             // Resize, and cache, the image (like in `storage/app/imageproxy`).
             // Don't bother with file extensions.
-            $file = 'imageproxy/'.base64_encode($url)."_{$width}x{$height}";
+            $file = 'imageproxy/'.hash('sha256', $url)."_{$width}x{$height}";
 
             if (Storage::exists($file)) {
                 // Return existing image. Uses `fpassthru()` under the hood and
                 // is thus not all that different from the code above.
-                return Storage::response($file);
+                return Storage::response($file, basename($url) ?: 'image');
             }
 
             // Set up Imagick.
@@ -126,30 +121,36 @@ class ImageProxyController
                 abort(500);
             }
 
-            // Resize and crop.
-            $im->cropThumbnailImage((int) $width, (int) $height);
-            $im->setImagePage(0, 0, 0, 0);
-            $im->setImageCompressionQuality(82);
+            if (! empty($width) && ! empty($height)) {
+                // Resize and crop.
+                $im->cropThumbnailImage((int) $width, (int) $height);
+                $im->setImagePage(0, 0, 0, 0);
+            } else {
+                $im->scaleImage(
+                    min($im->getImageWidth(), $width),
+                    min($im->getImageHeight(), $height)
+                ); // If either width or height is zero, scale proportionally.
+            }
+
+            $im->setImageCompressionQuality(config('imageproxy.quality', 82));
 
             // Store to disk.
             Storage::put($file, $im->getImageBlob());
 
             // Return newly stored image.
-            return Storage::response($file);
+            return Storage::response($file, basename($url) ?: 'image');
         }
     }
 
     /**
      * Verify URL.
-     *
-     * @param  string  $url
-     * @param  string  $hash
-     * @return bool
      */
-    protected function verifyUrl($url, $hash)
+    protected function verifyUrl(string $url, string $hash): bool
     {
-        if (strpos($url, 'http') !== 0 || filter_var($url, FILTER_VALIDATE_URL) === false) {
-            // Invalid (for this purpose) URL.
+        if (strpos($url, 'http') !== 0) {
+            // No longer also using `filter_var($url, FILTER_VALIDATE_URL) ===
+            // false` as it seems incompatible with certain weird chars.
+            Log::error('Not a valid URL: '.$url);
             return false;
         }
 
@@ -157,12 +158,16 @@ class ImageProxyController
             return true;
         }
 
-        // Try again swapping some encoded entities (which ones?) for their actual counterparts.
-        if ($hash === hash_hmac('sha1', str_replace(['%5B', '%5D'], ['[', ']'], $url), config('imageproxy.secret_key', ''))) {
+        // Let's not be too strict and try re-encoding some characters. (Web
+        // browsers and servers alike do the weirdest things to non-ASCII URL
+        // characters.
+        if ($hash === hash_hmac('sha1', $this->safeEncodeUrl($url), config('imageproxy.secret_key', ''))) {
+            // Most likely okay, too.
             return true;
         }
 
         // Either the URL's malformed, or the hash is invalid.
+        Log::error('Checksum verification failed for '.$url);
         return false;
     }
 
@@ -208,12 +213,17 @@ class ImageProxyController
     {
         $metadata = stream_get_meta_data($streamContext);
 
-        $status = $metadata['wrapper_data'][0];
-        $status = (int) explode(' ', $status)[1];
+        $status = 0;
 
         $headers = [];
 
         foreach ($metadata['wrapper_data'] as $line) {
+            if (preg_match('~^http/(?:.+?) (\d+) (?:.+?)$~i', $line, $match)) {
+                // Covers also subsequent statuses, like after a redirect.
+                $status = (int) $match[1];
+                continue;
+            }
+
             $row = explode(': ', $line);
 
             if (count($row) > 1) {
@@ -288,5 +298,27 @@ class ImageProxyController
         }
 
         return null;
+    }
+
+    protected function safeEncodeUrl(string $url): string
+    {
+        $dontEncode = [
+            '%2F' => '/',
+            '%40' => '@',
+            '%3A' => ':',
+            '%3B' => ';',
+            '%2C' => ',',
+            '%3D' => '=',
+            '%2B' => '+',
+            '%21' => '!',
+            '%2A' => '*',
+            '%7C' => '|',
+            '%3F' => '?',
+            '%26' => '&',
+            '%23' => '#',
+            '%25' => '%',
+        ];
+
+        return strtr(rawurlencode($url), $dontEncode);
     }
 }

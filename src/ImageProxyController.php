@@ -35,7 +35,6 @@ class ImageProxyController
         // to avoid any processing that could lead to checksum errors. To do:
         // actually drop the `$hash` and `$url` vars?
         $url = ltrim(str_replace('imageproxy/'.$hash, '', $_SERVER['REQUEST_URI']), '/');
-
         $path = explode('/', parse_url($url, PHP_URL_PATH));
 
         if (isset($path[0]) && preg_match('~^\d+x\d+$~', $path[0])) {
@@ -147,6 +146,9 @@ class ImageProxyController
      */
     protected function verifyUrl(string $url, string $hash): bool
     {
+        $url = strtok($url, '?'); // So, taking query strings along in the calculation seems to ... not always work.
+        strtok('', '');
+
         if (strpos($url, 'http') !== 0) {
             // No longer also using `filter_var($url, FILTER_VALIDATE_URL) ===
             // false` as it seems incompatible with certain weird chars.
@@ -154,9 +156,9 @@ class ImageProxyController
             return false;
         }
 
-        if ($hash === hash_hmac('sha1', $url, config('imageproxy.secret_key', ''))) {
-            return true;
-        }
+        // if ($hash === hash_hmac('sha1', $url, config('imageproxy.secret_key', ''))) {
+        //     return true;
+        // }
 
         // Let's not be too strict and try re-encoding some characters. (Web
         // browsers and servers alike do the weirdest things to non-ASCII URL

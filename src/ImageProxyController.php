@@ -20,7 +20,7 @@ class ImageProxyController
     {
         if ($request->headers->has('if-modified-since') || $request->headers->has('if-none-match')) {
             // It would seem the client already has the requested item.
-            return response('', 304);
+            return response('', 304); // Not technically correct, I think, but it seems to work?
         }
 
         if (empty($hash)) {
@@ -32,8 +32,7 @@ class ImageProxyController
         }
 
         // Use `$_SERVER` rather than `$url` or any of Laravel's URL functions
-        // to avoid any processing that could lead to checksum errors. To do:
-        // actually drop the `$hash` and `$url` vars?
+        // to avoid any processing that could lead to checksum errors.
         $url = ltrim(str_replace('imageproxy/'.$hash, '', $_SERVER['REQUEST_URI']), '/');
         $path = explode('/', parse_url($url, PHP_URL_PATH));
 
@@ -49,7 +48,7 @@ class ImageProxyController
         }
 
         $headers = array_filter([
-            // 'Accept' => 'image/*', // Some remote hosts don't handle this correctly.
+            // 'Accept' => 'image/*', // Seems some remote hosts don't handle this correctly.
             'Accept-Encoding' => $request->header('accept-encoding', null),
             'Connection' => 'close',
             'Content-Security-Policy' => "default-src 'none'; img-src data:; style-src 'unsafe-inline'",
@@ -64,6 +63,10 @@ class ImageProxyController
             // Just passing the requested image along.
             $stream = $this->openFile($url, $headers);
 
+            if (! $stream) {
+                abort(500);
+            }
+
             // Newly received headers.
             list($status, $headers) = $this->getHttpHeaders($stream);
 
@@ -72,10 +75,16 @@ class ImageProxyController
                 $headers
             );
 
-            // if (empty($headers['content-type']) || ! preg_match('~^(image|video)/.+$~i', $headers['content-type'])) {
+            // if (empty($headers['content-type']) || ! preg_match('~^(image|video|audio)/.+$~i', $headers['content-type'])) {
             //     Log::error('Not an image? ('.$url.')');
-            //     abort(400);
+            //     abort(500);
             // }
+
+            if ($status === 0) {
+                Log::error('HTTP status "0" occurred for '.$url);
+                Log::debug($headers);
+                abort(500);
+            }
 
             if (! in_array($status, [200, 201, 202, 206, 301, 302, 307], true)) {
                 Log::error('Error occurred for '.$url);
@@ -86,15 +95,7 @@ class ImageProxyController
                 return response('', $status, $headers);
             }
 
-            $headers['Cache-Control'] = 'public, max-age=31536000';
-
-            return response()->stream(function () use ($stream) {
-                while (ob_get_level() > 0) {
-                    ob_end_flush();
-                }
-
-                fpassthru($stream);
-            }, $status, $headers);
+            return $this->passThrough($stream, $status, $headers);
         } else {
             // Resize, and cache, the image (like in `storage/app/imageproxy`).
             // Don't bother with file extensions.
@@ -103,7 +104,11 @@ class ImageProxyController
             if (Storage::exists($file)) {
                 // Return existing image. Uses `fpassthru()` under the hood and
                 // is thus not all that different from the code above.
-                return Storage::response($file, basename($url) ?: 'image');
+                return Storage::response(
+                    $file,
+                    basename($url) ?: 'image',
+                    ['Cache-Control' => 'public, max-age=31536000']
+                );
             }
 
             // Set up Imagick.
@@ -112,11 +117,26 @@ class ImageProxyController
 
             try {
                 // Read remote image.
-                $handle = $this->openFile($url, $headers);
-                $im->readImageFile($handle);
+                $stream = $this->openFile($url, $headers);
+
+                // To try to determine a MIME type.
+                list($status, $headers) = $this->getHttpHeaders($stream);
+
+                // Lowercase keys.
+                $headers = array_combine(
+                    array_map('strtolower', array_keys($headers)),
+                    $headers
+                );
+
+                if (! empty($headers['content-type']) && preg_match('~svg\+xml$~i', $headers['content-type'])) {
+                    // Leave SVGs as they are.
+                    return $this->passThrough($stream, $status, $headers);
+                }
+
+                $im->readImageFile($stream);
             } catch (\Exception $e) {
                 // Something went wrong.
-                Log::debug("Failed to read the image at $url: ".$e->getMessage());
+                Log::error("Failed to read the image at $url: ".$e->getMessage());
                 abort(500);
             }
 
@@ -137,7 +157,11 @@ class ImageProxyController
             Storage::put($file, $im->getImageBlob());
 
             // Return newly stored image.
-            return Storage::response($file, basename($url) ?: 'image');
+            return Storage::response(
+                $file,
+                basename($url) ?: 'image',
+                ['Cache-Control' => 'public, max-age=31536000']
+            );
         }
     }
 
@@ -220,7 +244,7 @@ class ImageProxyController
         $headers = [];
 
         foreach ($metadata['wrapper_data'] as $line) {
-            if (preg_match('~^http/(?:.+?) (\d+) (?:.+?)$~i', $line, $match)) {
+            if (preg_match('~^http/(?:.+?) (\d+) (?:.*?)$~i', $line, $match)) {
                 // Covers also subsequent statuses, like after a redirect.
                 $status = (int) $match[1];
                 continue;
@@ -276,7 +300,7 @@ class ImageProxyController
 
         if ($hasIpv6) {
             $bindTo = '[0]:0';
-        } elseif ($hasIpv4) {
+        } elseif ($hasIpv6) {
             $bindTo = '0:0';
         }
 
@@ -285,7 +309,7 @@ class ImageProxyController
             return fopen($url, 'rb', false, $this->createStreamContext($headers, $bindTo));
         } catch (\Exception $e) {
             // That didn't work.
-            if ($bindTo === '[0]:0' && $hasIpv4) {
+            // if ($bindTo === '[0]:0' && $hasIpv4) {
                 // Try IPv4.
                 $bindTo = '0:0';
 
@@ -296,10 +320,27 @@ class ImageProxyController
                     Log::error("Failed to open the image at $url: ".$e->getMessage());
                     abort(500);
                 }
-            }
+            // }
         }
 
         return null;
+    }
+
+    /**
+     * @param  resource  $streamContext
+     * @return \Illuminate\Http\Response
+     */
+    protected function passThrough($stream, int $status = null, array $headers = [])
+    {
+        $headers['Cache-Control'] = 'public, max-age=31536000';
+
+        return response()->stream(function () use ($stream) {
+            while (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+
+            fpassthru($stream);
+        }, $status ?? 500, $headers);
     }
 
     protected function safeEncodeUrl(string $url): string

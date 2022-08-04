@@ -278,7 +278,6 @@ class ImageProxyController
         }
 
         $hasIpv6 = false;
-        $hasIpv4 = false;
 
         $dnsRecords = dns_get_record($host, DNS_AAAA + DNS_A);
 
@@ -287,20 +286,15 @@ class ImageProxyController
                 continue;
             }
 
-            switch ($dnsRecord['type']) {
-                case 'AAAA':
-                    $hasIpv6 = true;
-                    break;
-
-                case 'A':
-                    $hasIpv4 = true;
-                    break;
+            if ($dnsRecord['type'] === 'AAAA') {
+                $hasIpv6 = true;
+                break;
             }
         }
 
         if ($hasIpv6) {
             $bindTo = '[0]:0';
-        } elseif ($hasIpv6) {
+        } else {
             $bindTo = '0:0';
         }
 
@@ -308,19 +302,16 @@ class ImageProxyController
             // Try IPv6 if it exists, and IPv4 otherwise.
             return fopen($url, 'rb', false, $this->createStreamContext($headers, $bindTo));
         } catch (\Exception $e) {
-            // That didn't work.
-            // if ($bindTo === '[0]:0' && $hasIpv4) {
-                // Try IPv4.
-                $bindTo = '0:0';
+            // (Re-)try IPv4.
+            $bindTo = '0:0';
 
-                try {
-                    return fopen($url, 'rb', false, $this->createStreamContext($headers, $bindTo));
-                } catch (\Exception $e) {
-                    // Giving up.
-                    Log::error("Failed to open the image at $url: ".$e->getMessage());
-                    abort(500);
-                }
-            // }
+            try {
+                return fopen($url, 'rb', false, $this->createStreamContext($headers, $bindTo));
+            } catch (\Exception $e) {
+                // Giving up.
+                Log::error("Failed to open the image at $url: ".$e->getMessage());
+                abort(500);
+            }
         }
 
         return null;
